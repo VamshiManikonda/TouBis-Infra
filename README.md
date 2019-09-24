@@ -9,10 +9,10 @@ aws configure --profile TouBisAdmin
 and then enter the following details
 
 
-AWS Access Key ID [None]:         <enter access key provided in shared file and hit enter>
-AWS Secret Access Key [None]:      <enter secret key provided in shared file and hit enter>
-Default region name [None]:        us-east-1
-Default output format [None]:      <just hit enter>
+AWS Access Key ID [None]:      <enter access key provided in shared file and hit enter>
+AWS Secret Access Key [None]:  <enter secret key provided in shared file and hit enter>
+Default region name [None]:    us-east-1
+Default output format [None]:  <just hit enter>
 
 
 Infrastructure setup will be launched from local machine
@@ -31,6 +31,7 @@ bash init.sh
 when you run above command, CloudFormation stacks will be created at region=us-east-1
 
 Deployment steps:
+--------------------------------
 
 - ssh on to Bastion host using 'TouBisKey.pem'
 - clone repo
