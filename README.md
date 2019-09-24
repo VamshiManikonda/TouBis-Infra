@@ -35,13 +35,13 @@ Deployment steps:
 - ssh on to Bastion host using 'TouBisKey.pem'
 - clone repo
 
-git clone https://github.com/VamshiManikonda/ansible-node-app-deploy.git
-git pull
+  git clone https://github.com/VamshiManikonda/ansible-node-app-deploy.git
+  git pull
 
 - run below ansible commands to deploy
 
-cd deploy
-ansible-playbook deploy.yml -i demo -u root -e env=demo
+  cd deploy
+  ansible-playbook deploy.yml -i demo -u root -e env=demo
 
 
 Note: Use the pem file 'TouBisKey' to ssh on to Bastion host and other instaances via Bastion host.
