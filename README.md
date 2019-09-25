@@ -37,7 +37,7 @@ Deployment steps:
 - git clone https://github.com/VamshiManikonda/ansible-node-app-deploy.git
 - git pull
 ```
-Run below ansible commands to deploy
+Run below ansible commands to deploy node app to EC2
 -------------------------------------
 ```
 - cd deploy
