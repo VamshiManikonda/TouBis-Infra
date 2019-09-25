@@ -1,0 +1,168 @@
+Description: >-
+  This template deploys 2 webservers in private subnet of virgina region (us-east-1)
+Parameters:
+  EnvironmentName:
+      Description: An environment name that will be prefixed to resource names
+      Type: String
+      AllowedValues: 
+      - Non-Prod
+      - Prod-Main
+      Default: 'Non-Prod'
+
+  ProductName:
+      Description: A Product name that will be prefixed to resource names
+      Type: String
+      Default: TouBisPOC
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: String
+    Default: 'TouBisKey'
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+  NetworkStackName:
+    Description: Name of network stack to import values
+    Type: String
+    Default: 'TouBisNetwork'  # see init.sh
+  InstanceType:
+    Description: WebServer EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t1.micro
+      - t2.nano
+      - t2.micro
+    ConstraintDescription: must be a valid EC2 instance type.
+  AmiId:
+    Description: Ami Id used for the 2 Webservers which will be load balanced through Proxy LB instance
+    Type: String
+    Default: 'ami-07d0cf3af28718ef8'  #ubuntu 18.04
+Resources:
+  WebServer1: #create 2 in private for webservers 1 in public for jump host were we run ansible scripts.. also create lb + proxy server
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: !Ref InstanceType
+      NetworkInterfaces:
+        - GroupSet:
+            - !GetAtt WebServerSecurityGroup.GroupId
+          DeviceIndex: "0"
+          SubnetId: 
+            Fn::ImportValue: 
+              !Sub ${NetworkStackName}:PrivateSubnet1
+      KeyName: !Ref KeyName
+      ImageId: !Ref AmiId
+      Tags:
+          - Key: Name
+            Value: !Sub ${ProductName}-${EnvironmentName}-WebServer1
+          - Key: Business / Service Owner
+            Value: TouBisTeam
+          - Key: Purpose
+            Value: Webserver
+          - Key: ProductID
+            Value: !Ref ProductName
+          - Key: Environment
+            Value: !Sub ${EnvironmentName}
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            hostname Node-01
+            echo Node-01 > /etc/hostname
+            cp /home/ubuntu/.ssh/authorized_keys /root/.ssh/
+  WebServer2: #create 2 in private for webservers 1 in public for jump host were we run ansible scripts.. also create lb + proxy server
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: !Ref InstanceType
+      NetworkInterfaces:
+        - GroupSet:
+            - !GetAtt WebServerSecurityGroup.GroupId
+          DeviceIndex: "0"
+          SubnetId: 
+            Fn::ImportValue: 
+              !Sub ${NetworkStackName}:PrivateSubnet1
+      KeyName: !Ref KeyName
+      ImageId: !Ref AmiId
+      Tags:
+          - Key: Name
+            Value: !Sub ${ProductName}-${EnvironmentName}-WebServer2
+          - Key: Business / Service Owner
+            Value: TouBisTeam
+          - Key: Purpose
+            Value: Webserver
+          - Key: ProductID
+            Value: !Ref ProductName
+          - Key: Environment
+            Value: !Sub ${EnvironmentName}
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            hostname Node-02
+            echo Node-02 > /etc/hostname
+            cp /home/ubuntu/.ssh/authorized_keys /root/.ssh/
+  WebServerSecurityGroup: # restrict this to nginx loadbalancer only..
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupName: !Sub ${ProductName}-${EnvironmentName}-WebServerSecurityGroup
+      GroupDescription: Enable access to port 22 and 80 within vpc only
+      VpcId:
+        Fn::ImportValue: 
+          !Sub '${NetworkStackName}:VPCId'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp:
+            Fn::ImportValue: 
+              !Sub '${NetworkStackName}:VPCCidr'
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp:
+            Fn::ImportValue: 
+              !Sub '${NetworkStackName}:VPCCidr'
+        - IpProtocol: tcp
+          FromPort: '9000' #nodejs port
+          ToPort: '9000'
+          CidrIp:
+            Fn::ImportValue: 
+              !Sub '${NetworkStackName}:VPCCidr'
+Outputs:
+  WebServer1InstanceId:
+    Description: InstanceId of the newly created EC2 instance
+    Value: !Ref WebServer1
+  WebServer1AZ:
+    Description: Availability Zone of the newly created EC2 instance
+    Value: !GetAtt 
+      - WebServer1
+      - AvailabilityZone
+  WebServer1PrivateDNS:
+    Description: Public DNSName of the newly created EC2 instance
+    Value: !GetAtt 
+      - WebServer1
+      - PrivateDnsName
+  WebServer1PrivateIP:
+    Description: Public IP address of the newly created EC2 instance
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", WebServer1 ] ]
+    Value: !GetAtt 
+      - WebServer1
+      - PrivateIp
+  WebServer2InstanceId:
+    Description: InstanceId of the newly created EC2 instance
+    Value: !Ref WebServer2
+  WebServer2AZ:
+    Description: Availability Zone of the newly created EC2 instance
+    Value: !GetAtt 
+      - WebServer2
+      - AvailabilityZone
+  WebServer2PrivateDNS:
+    Description: Public DNSName of the newly created EC2 instance
+    Value: !GetAtt 
+      - WebServer2
+      - PrivateDnsName
+  WebServer2PrivateIP:
+    Description: Public IP address of the newly created EC2 instance
+    Value: !GetAtt 
+      - WebServer2
+      - PrivateIp
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", WebServer2 ] ]

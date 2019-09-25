@@ -1,0 +1,256 @@
+Description: >-
+  This template creates a Load Balancer which will forward requests to Proxy Load Balancer instance in private subnet
+  Proxy LoadBalancer redirects traffic to 2 web server instances hosted in private subnet
+Parameters:
+  EnvironmentName:
+      Description: An environment name that will be prefixed to resource names
+      Type: String
+      AllowedValues: 
+      - Non-Prod
+      - Prod-Main
+      Default: 'Non-Prod'
+  ProductName:
+      Description: A Product name that will be prefixed to resource names
+      Type: String
+      Default: TouBisPOC
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: String
+    Default: 'TouBisKey'
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+  WebServersStackName:
+    Description: Name of network stack to import values
+    Type: String
+    Default: 'TouBisWebServers'
+  NetworkStackName:
+    Description: Name of network stack to import values
+    Type: String
+    Default: 'TouBisNetwork'  # see init.sh
+  InstanceType:
+    Description: WebServer EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t1.micro
+      - t2.nano
+      - t2.micro
+    ConstraintDescription: must be a valid EC2 instance type.
+  SSHLocation:
+    Description: The IP address range that can be used to SSH to the EC2 instances
+    Type: String
+    Default: 0.0.0.0/0   # restrict this within vpc!!
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  AmiId:
+    Description: Ami Id used for the Proxy LB instance in private subnet and Bastion host in public subnet
+    Type: String
+    Default: 'ami-07d0cf3af28718ef8' #ubuntu 18.04
+Resources:
+  BastionHostSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable access to port 22 outside of network
+      GroupName: !Sub ${ProductName}-${EnvironmentName}-BastionHostSecurityGroup
+      VpcId:
+        Fn::ImportValue:
+          !Sub '${NetworkStackName}:VPCId'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: !Ref SSHLocation
+  LoadBalancerSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupName: !Sub ${ProductName}-${EnvironmentName}-LoadBalancerSecurityGroup
+      GroupDescription: Enable access to port 22 and 80 within vpc only
+      VpcId:
+        Fn::ImportValue:
+          !Sub '${NetworkStackName}:VPCId'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: '0.0.0.0/0'  #public access
+  ProxyLBInstanceSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupName: !Sub ${ProductName}-${EnvironmentName}-ProxyLoadBalancerSecurityGroup
+      GroupDescription: Enable access to port 22 and 80 within vpc only
+      VpcId:
+        Fn::ImportValue: 
+          !Sub '${NetworkStackName}:VPCId'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp:
+            Fn::ImportValue: 
+              !Sub '${NetworkStackName}:VPCCidr'
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp:
+            Fn::ImportValue: 
+              !Sub '${NetworkStackName}:VPCCidr'  #generally access is restricted to LB only.. fix this
+  BastionHost:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: !Ref InstanceType
+      NetworkInterfaces:
+        - GroupSet:
+            - !GetAtt BastionHostSecurityGroup.GroupId
+          AssociatePublicIpAddress: true
+          DeviceIndex: "0"
+          SubnetId: 
+            Fn::ImportValue: 
+              !Sub ${NetworkStackName}:PublicSubnet1  #public subnet for bastion host
+      KeyName: !Ref KeyName
+      ImageId: !Ref AmiId
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            # Scripts entered as user data are executed as the root user
+            hostname Bastion
+            echo Bastion > /etc/hostname
+            apt install -y software-properties-common python3-software-properties
+            apt-add-repository ppa:ansible/ansible
+            apt update
+            apt install -y ansible
+            apt install -y awscli
+            echo "alias python='/usr/bin/python3'" >> /root/.bashrc
+            . ~/.bashrc
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProductName}-${EnvironmentName}-BastionHost
+        - Key: Business / Service Owner
+          Value: TouBisTeam
+        - Key: Purpose
+          Value: SSH access
+        - Key: ProductID
+          Value: !Ref ProductName
+        - Key: Environment
+          Value: !Sub ${EnvironmentName}
+  ProxyLBInstance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: !Ref InstanceType
+      NetworkInterfaces:
+        - GroupSet:
+            - !GetAtt ProxyLBInstanceSecurityGroup.GroupId
+          DeviceIndex: "0"
+          SubnetId: 
+            Fn::ImportValue: 
+              !Sub ${NetworkStackName}:PrivateSubnet1  #private subnet for proxy lb
+      KeyName: !Ref KeyName
+      ImageId: !Ref AmiId
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            # Scripts entered as user data are executed as the root user
+            hostname ProxyLB
+            echo ProxyLB > /etc/hostname
+            apt update
+            echo "alias python='/usr/bin/python3'" >> /root/.bashrc
+            cp /home/ubuntu/.ssh/authorized_keys /root/.ssh/
+            . ~/.bashrc
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProductName}-${EnvironmentName}-ProxyLBInstance
+        - Key: Business / Service Owner
+          Value: TouBisTeam
+        - Key: Purpose
+          Value: Proxy LB Instance
+        - Key: ProductID
+          Value: !Ref ProductName
+        - Key: Environment
+          Value: !Sub ${EnvironmentName}
+#double check values and vars
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${ProductName}-${EnvironmentName}-LoadBalancer
+      Subnets: #public subnets for internet facing lb
+        - Fn::ImportValue: 
+            !Sub "${NetworkStackName}:PublicSubnet1"
+        - Fn::ImportValue: 
+            !Sub "${NetworkStackName}:PublicSubnet2"
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+      Tags:
+          - Key: Name
+            Value: !Sub ${ProductName}-${EnvironmentName}-OfficeNetwork
+          - Key: Business / Service Owner
+            Value: TouBisTeam
+          - Key: Purpose
+            Value: Network
+          - Key: ProductID
+            Value: !Ref ProductName
+          - Key: Environment
+            Value: !Sub ${EnvironmentName}
+
+  LoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP 
+  
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 80
+      Protocol: HTTP
+      Targets:
+        - Id: !Ref ProxyLBInstance   #added only one proxy instance to loadbalancer !!important
+      VpcId:
+        Fn::ImportValue: 
+          !Sub '${NetworkStackName}:VPCId'
+
+Outputs:
+  BastionHostInstanceId:
+    Description: InstanceId of the newly created EC2 instance
+    Value: !Ref BastionHost
+  BastionHostAZ:
+    Description: Availability Zone of the newly created EC2 instance
+    Value: !GetAtt 
+      - BastionHost
+      - AvailabilityZone
+  BastionHostPublicDNS:
+    Description: Public DNSName of the newly created EC2 instance
+    Value: !GetAtt 
+      - BastionHost
+      - PublicDnsName
+  BastionHostPublicIP:
+    Description: Public IP address of the newly created EC2 instance
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", BastionHost ] ]
+    Value: !GetAtt 
+      - BastionHost
+      - PublicIp
+  ProxyLBInstanceInstanceId:
+    Description: InstanceId of the newly created EC2 instance
+    Value: !Ref ProxyLBInstance
+  ProxyLBInstanceAZ:
+    Description: Availability Zone of the newly created EC2 instance
+    Value: !GetAtt 
+      - ProxyLBInstance
+      - AvailabilityZone
+  ProxyLBInstancePrivateDNS:
+    Description: Public DNSName of the newly created EC2 instance
+    Value: !GetAtt 
+      - ProxyLBInstance
+      - PrivateDnsName
+  ProxyLBInstancePrivateIP:
+    Description: Public IP address of the newly created EC2 instance
+    Value: !GetAtt 
+      - ProxyLBInstance
+      - PrivateIp
+    # Export:
+    #   Name: !Join [ ":", [ !Ref "AWS::StackName", ProxyLBInstance ] ]
